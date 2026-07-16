@@ -1,0 +1,185 @@
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+
+/// Local SQLite database for offline-first wardrobe storage.
+class LocalDatabase {
+  static Database? _db;
+
+  /// sqflite rejects bool values — convert to 0/1 before any write.
+  static Map<String, dynamic> _sanitize(Map<String, dynamic> fields) =>
+      fields.map((k, v) => MapEntry(k, v is bool ? (v ? 1 : 0) : v));
+
+  static Future<Database> get database async {
+    if (_db != null) return _db!;
+    _db = await _init();
+    return _db!;
+  }
+
+  static Future<Database> _init() async {
+    final path = join(await getDatabasesPath(), 'smart_wardrobe.db');
+    return await openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            name TEXT,
+            email TEXT,
+            city TEXT DEFAULT 'Mumbai',
+            streak_count INTEGER DEFAULT 0,
+            streak_updated TEXT,
+            api_key TEXT,
+            notify_enabled INTEGER DEFAULT 1,
+            weekly_plan_enabled INTEGER DEFAULT 1,
+            wash_notify_enabled INTEGER DEFAULT 1,
+            weather_anomaly_enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS wardrobe (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'top',
+            color TEXT DEFAULT 'black',
+            warmth INTEGER DEFAULT 5,
+            formality INTEGER DEFAULT 5,
+            waterproof INTEGER DEFAULT 0,
+            season TEXT DEFAULT 'all',
+            photo_url TEXT,
+            photo_template_url TEXT,
+            photo_status TEXT DEFAULT 'none',
+            gemini_description TEXT,
+            wear_count INTEGER DEFAULT 0,
+            first_worn TEXT,
+            last_worn TEXT,
+            wash_count INTEGER DEFAULT 0,
+            wash_threshold INTEGER DEFAULT 3,
+            needs_wash INTEGER DEFAULT 0,
+            last_washed TEXT,
+            preference REAL DEFAULT 50,
+            is_archived INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS outfit_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            item_ids TEXT NOT NULL,
+            occasion TEXT DEFAULT 'casual',
+            worn_date TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        ''');
+      },
+    );
+  }
+
+  // ─── User Operations ──────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> createOrGetUser(String username, {String? name, String? email}) async {
+    final db = await database;
+    final existing = await db.query('users', where: 'username = ?', whereArgs: [username]);
+    if (existing.isNotEmpty) {
+      return Map<String, dynamic>.from(existing.first);
+    }
+    final id = await db.insert('users', {
+      'username': username,
+      'name': name ?? username,
+      'email': email ?? '$username@local.dev',
+    });
+    final user = await db.query('users', where: 'id = ?', whereArgs: [id]);
+    return Map<String, dynamic>.from(user.first);
+  }
+
+  static Future<Map<String, dynamic>?> getUser(String username) async {
+    final db = await database;
+    final rows = await db.query('users', where: 'username = ?', whereArgs: [username]);
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  static Future<Map<String, dynamic>> updateUser(String username, Map<String, dynamic> fields) async {
+    final db = await database;
+    await db.update('users', _sanitize(fields), where: 'username = ?', whereArgs: [username]);
+    final rows = await db.query('users', where: 'username = ?', whereArgs: [username]);
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  // ─── Wardrobe Operations ──────────────────────────────────────
+
+  static Future<List<Map<String, dynamic>>> getWardrobe(String userId, {bool includeArchived = false}) async {
+    final db = await database;
+    if (includeArchived) {
+      return (await db.query('wardrobe', where: 'user_id = ?', whereArgs: [userId], orderBy: 'created_at DESC'))
+          .map((r) => Map<String, dynamic>.from(r)).toList();
+    }
+    return (await db.query('wardrobe', where: 'user_id = ? AND is_archived = 0', whereArgs: [userId], orderBy: 'created_at DESC'))
+        .map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  static Future<Map<String, dynamic>> addWardrobeItem(String userId, Map<String, dynamic> item) async {
+    final db = await database;
+    final id = await db.insert('wardrobe', {
+      'user_id': userId,
+      'name': item['name'],
+      'category': item['category'] ?? 'top',
+      'color': item['color'] ?? 'black',
+      'warmth': item['warmth'] ?? 5,
+      'formality': item['formality'] ?? 5,
+      'waterproof': (item['waterproof'] == true || item['waterproof'] == 1) ? 1 : 0,
+      'season': item['season'] ?? 'all',
+      'photo_url': item['photo_url'],
+      'wash_threshold': item['wash_threshold'] ?? 3,
+    });
+    final rows = await db.query('wardrobe', where: 'id = ?', whereArgs: [id]);
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  static Future<Map<String, dynamic>?> getItem(int id) async {
+    final db = await database;
+    final rows = await db.query('wardrobe', where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  static Future<Map<String, dynamic>> updateItem(int id, Map<String, dynamic> fields) async {
+    final db = await database;
+    await db.update('wardrobe', _sanitize(fields), where: 'id = ?', whereArgs: [id]);
+    final rows = await db.query('wardrobe', where: 'id = ?', whereArgs: [id]);
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  static Future<void> deleteItem(int id) async {
+    final db = await database;
+    await db.delete('wardrobe', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ─── Outfit Memory ────────────────────────────────────────────
+
+  static Future<void> addOutfitMemory(String userId, List<int> itemIds, String occasion, String date) async {
+    final db = await database;
+    await db.insert('outfit_memory', {
+      'user_id': userId,
+      'item_ids': itemIds.join(','),
+      'occasion': occasion,
+      'worn_date': date,
+    });
+  }
+
+  static Future<List<Map<String, dynamic>>> getRecentOutfits(String userId, String occasion, {int limit = 20}) async {
+    final db = await database;
+    final rows = await db.query('outfit_memory',
+        where: 'user_id = ? AND occasion = ?', whereArgs: [userId, occasion],
+        orderBy: 'worn_date DESC', limit: limit);
+    return rows.map((r) {
+      final m = Map<String, dynamic>.from(r);
+      m['item_ids'] = (m['item_ids'] as String).split(',').where((s) => s.isNotEmpty).map((s) => int.parse(s)).toList();
+      return m;
+    }).toList();
+  }
+}
