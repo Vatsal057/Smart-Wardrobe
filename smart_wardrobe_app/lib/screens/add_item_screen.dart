@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../theme.dart';
@@ -80,31 +81,35 @@ class _AddItemScreenState extends State<AddItemScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Photo
-            GestureDetector(
-              onTap: () => _showPhotoOptions(),
-              child: Container(
-                width: double.infinity,
-                height: 200,
-                decoration: BoxDecoration(
-                  color: AppColors.bgSurface2,
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-                  border: Border.all(color: AppColors.borderSubtle),
-                  image: _photo != null ? DecorationImage(image: FileImage(_photo!), fit: BoxFit.cover) : null,
+            // Photo. Hidden on web: item photos are written to the app documents
+            // directory, which a browser doesn't have. Offering the picker here
+            // would just fail after the visitor picked a file.
+            if (!kIsWeb) ...[
+              GestureDetector(
+                onTap: () => _showPhotoOptions(),
+                child: Container(
+                  width: double.infinity,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: AppColors.bgSurface2,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+                    border: Border.all(color: AppColors.borderSubtle),
+                    image: _photo != null ? DecorationImage(image: FileImage(_photo!), fit: BoxFit.cover) : null,
+                  ),
+                  child: _photo == null
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.camera_alt_outlined, color: AppColors.textTertiary, size: 36),
+                            const SizedBox(height: AppSpacing.sm),
+                            Text('Add photo', style: AppTheme.body.copyWith(color: AppColors.textTertiary)),
+                          ],
+                        )
+                      : null,
                 ),
-                child: _photo == null
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt_outlined, color: AppColors.textTertiary, size: 36),
-                          const SizedBox(height: AppSpacing.sm),
-                          Text('Add photo', style: AppTheme.body.copyWith(color: AppColors.textTertiary)),
-                        ],
-                      )
-                    : null,
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.lg),
+            ],
 
             // Name
             Text('NAME', style: AppTheme.label),

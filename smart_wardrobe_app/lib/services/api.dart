@@ -1,20 +1,33 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'demo_seed.dart';
 import 'local_database.dart';
 
 /// Smart Wardrobe API Service — Fully Offline / Local
 /// All data stored in local SQLite via sqflite. No backend server needed.
+///
+/// Browser build: everything works except the disk-backed photo features.
+/// A browser has no app documents directory, so photo capture and the Gemini
+/// photo polish are skipped on web and every path that would touch a File is
+/// guarded by [kIsWeb]. Scoring, planning, wash tracking, insights and the
+/// live weather lookup all run identically.
 class ApiService {
   static String? _username;
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _username = prefs.getString('sw_username');
+    // Also seed on restore, not just on login: a browser can keep the
+    // localStorage session while its IndexedDB copy of the database is gone
+    // (cleared storage, private window), which would otherwise drop a
+    // returning visitor into an empty closet.
+    if (kIsWeb && _username != null) await DemoSeed.ensureSeeded(_username!);
   }
 
   static String? get sessionToken => _username;
@@ -27,6 +40,10 @@ class ApiService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('sw_username', username);
     final user = await LocalDatabase.createOrGetUser(username, name: name, email: email);
+    // The browser demo starts from a furnished closet, otherwise a visitor sees
+    // empty screens and none of the scoring means anything. No-op if this user
+    // already has items, so their own edits are never overwritten.
+    if (kIsWeb) await DemoSeed.ensureSeeded(username);
     return {'session_token': username, 'user': user};
   }
 
@@ -71,7 +88,7 @@ class ApiService {
     File? photo,
   }) async {
     String? photoPath;
-    if (photo != null) {
+    if (photo != null && !kIsWeb) {
       final dir = await getApplicationDocumentsDirectory();
       final photosDir = Directory(p.join(dir.path, 'wardrobe_photos'));
       if (!await photosDir.exists()) await photosDir.create(recursive: true);
@@ -97,10 +114,12 @@ class ApiService {
 
   static Future<void> deleteWardrobeItem(int id) async {
     final item = await LocalDatabase.getItem(id);
-    for (final key in ['photo_url', 'photo_template_url']) {
-      if (item?[key] != null) {
-        final f = File(item![key] as String);
-        if (await f.exists()) await f.delete();
+    if (!kIsWeb) {
+      for (final key in ['photo_url', 'photo_template_url']) {
+        if (item?[key] != null) {
+          final f = File(item![key] as String);
+          if (await f.exists()) await f.delete();
+        }
       }
     }
     await LocalDatabase.deleteItem(id);
@@ -205,6 +224,12 @@ class ApiService {
   /// Re-shoots the item photo as a catalog-style product photo via Gemini
   /// image editing. Needs the user's Gemini API key (Settings) and network.
   static Future<Map<String, dynamic>> polishPhoto(int itemId) async {
+    if (kIsWeb) {
+      return {
+        'status': 'error',
+        'description': 'Photo polish needs local file storage — use the Android build for this.',
+      };
+    }
     final item = await LocalDatabase.getItem(itemId);
     if (item == null || item['photo_url'] == null) {
       return {'status': 'error', 'description': 'This item has no photo to polish.'};

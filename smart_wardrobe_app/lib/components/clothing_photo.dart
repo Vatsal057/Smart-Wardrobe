@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
@@ -59,8 +60,10 @@ class ClothingPhoto extends StatelessWidget {
 
   Widget _buildImage() {
     final url = photoUrl!;
-    // Check if it's a local file path
+    // Check if it's a local file path. A browser has no filesystem to read it
+    // from, so fall through to the placeholder rather than throwing.
     if (url.startsWith('/') || url.startsWith('C:') || url.startsWith('D:') || url.contains('\\')) {
+      if (kIsWeb) return _placeholder();
       final file = File(url);
       return Image.file(
         file,

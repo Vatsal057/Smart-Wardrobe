@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../services/api.dart';
 
@@ -16,6 +17,15 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> init() async {
     await ApiService.init();
+    // The browser build skips the name gate. There is no account system to
+    // protect — the username is only a local profile key — and asking someone
+    // evaluating the app to invent one before they can see anything is pure
+    // friction. On device the login screen still stands, so a shared phone
+    // keeps separate wardrobes.
+    if (kIsWeb && !ApiService.isLoggedIn) {
+      await login('demo', name: 'Demo');
+      return;
+    }
     if (ApiService.isLoggedIn) {
       await fetchUser();
     }
