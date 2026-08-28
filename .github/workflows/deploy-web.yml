@@ -1,0 +1,79 @@
+name: Deploy web demo
+
+# Builds the Flutter web app and publishes it to GitHub Pages. Building in CI
+# rather than committing build output keeps a ~37 MB bundle (CanvasKit ships
+# several renderer variants) out of the repository, and means the live demo
+# tracks main without anyone remembering to redeploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'smart_wardrobe_app/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish; queue at most one more.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smart_wardrobe_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+      # web/sqflite_sw.js and web/sqlite3.wasm are committed, so the WASM
+      # SQLite backend needs no extra setup step here. Fail loudly if they go
+      # missing, because the app would still build and then break at runtime
+      # the first time it touched the database.
+      - name: Verify WASM SQLite assets are present
+        run: |
+          test -f web/sqflite_sw.js
+          test -f web/sqlite3.wasm
+
+      - name: Build web
+        run: |
+          flutter build web --release \
+            --base-href /Smart-Wardrobe/ \
+            --pwa-strategy=none
+          test -f build/web/sqlite3.wasm
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: smart_wardrobe_app/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
