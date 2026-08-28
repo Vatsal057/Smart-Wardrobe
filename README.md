@@ -1,5 +1,10 @@
 # Smart Wardrobe
 
+**[Open the live demo →](https://vatsal057.github.io/Smart-Wardrobe/)** — the same
+Flutter code running in your browser, with SQLite compiled to WebAssembly and a
+pre-filled wardrobe so the outfit scoring has something to work with. Photo
+capture is the one feature the web build drops; everything else is the real app.
+
 Offline-first, AI-powered wardrobe management app for Android, built with Flutter and SQLite.
 
 The promise: open the app and see exactly what to wear today; on Sunday evening see your full week planned; get warned before you run out of clean clothes. Free, no ads, no subscription — all data stays on-device.
