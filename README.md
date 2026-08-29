@@ -2,8 +2,9 @@
 
 **[Open the live demo →](https://vatsal057.github.io/Smart-Wardrobe/)** — the same
 Flutter code running in your browser, with SQLite compiled to WebAssembly and a
-pre-filled wardrobe so the outfit scoring has something to work with. Photo
-capture is the one feature the web build drops; everything else is the real app.
+wardrobe already filled in so the outfit scoring has something to score. The web
+build drops photo capture, because a browser has no app documents directory to
+write the files to.
 
 Offline-first, AI-powered wardrobe management app for Android, built with Flutter and SQLite.
 
